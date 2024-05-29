@@ -1,0 +1,200 @@
+// GET - Project - Section - Task (but getting task id instead of name )
+public class ToDoistToOrgQueueable implements Queueable, Database.AllowsCallouts {
+    public void execute(QueueableContext context) {
+        System.debug('---------------------------- Inside Queueable apex ------------------------------------');
+        Http http = new Http();
+
+        HttpRequest projectRequest = new HttpRequest();
+        projectRequest.setEndpoint('https://api.todoist.com/rest/v2/projects');
+        projectRequest.setMethod('GET');
+        projectRequest.setHeader('Authorization', 'Bearer ca3dedc92f418462bda0f6bc28580cc2df8c9162');
+        HttpResponse projectResponse = http.send(projectRequest);
+
+        if (projectResponse.getStatusCode() == 200) {
+            List<ProjectWrapper> projectWrappers = (List<ProjectWrapper>) JSON.deserialize(projectResponse.getBody(), List<ProjectWrapper>.class);
+            
+            Map<String, ProjectWrapper> projectWrapperMap = new Map<String, ProjectWrapper>();
+            for (ProjectWrapper projectWrapper : projectWrappers) {
+                projectWrapperMap.put(projectWrapper.id, projectWrapper);
+            }
+
+            Set<String> externalIds = projectWrapperMap.keySet();
+            System.debug('externalIds: ' + externalIds);
+
+            Map<String, Project__c> existingProjectsMap = new Map<String, Project__c>();
+            for (Project__c existingProject : [SELECT Id, Name, External_Id__c FROM Project__c WHERE External_Id__c IN :externalIds]) {
+                existingProjectsMap.put(existingProject.External_Id__c, existingProject);
+            }
+            System.debug('existingProjectsMap: ' + existingProjectsMap);
+
+            List<Project__c> projectsToUpsert = new List<Project__c>();
+            Map<String, List<SectionWrapper>> sectionsMap = new Map<String, List<SectionWrapper>>();
+            Map<String, List<TaskWrapper>> tasksMap = new Map<String, List<TaskWrapper>>();
+            Map<String, String> externalIdToSalesforceIdMap = new Map<String, String>();  // To map external IDs to Salesforce IDs
+
+            for (String projectId : projectWrapperMap.keySet()) {
+                ProjectWrapper projectWrapper = projectWrapperMap.get(projectId);
+                Project__c project = existingProjectsMap.containsKey(projectWrapper.id) ? existingProjectsMap.get(projectWrapper.id) : new Project__c();
+                project.External_Id__c = projectWrapper.id;
+                project.Name = projectWrapper.name;
+                project.color__c = projectWrapper.color;
+                project.comment_count__c = projectWrapper.comment_count;
+                project.is_favorite__c = projectWrapper.is_favorite;
+                project.is_inbox_project__c = projectWrapper.is_inbox_project;
+                project.is_shared__c = projectWrapper.is_shared;
+                project.is_team_inbox__c = projectWrapper.is_team_inbox;
+                project.url__c = projectWrapper.url;
+                project.view_style__c = projectWrapper.view_style;
+                projectsToUpsert.add(project);
+
+                List<SectionWrapper> sectionWrappers = fetchSectionsForProject(projectWrapper.id, http);
+                sectionsMap.put(projectWrapper.id, sectionWrappers);
+
+                List<TaskWrapper> taskWrappers = fetchTasksForProject(projectWrapper.id, http);
+                tasksMap.put(projectWrapper.id, taskWrappers);
+            }
+
+            if (!projectsToUpsert.isEmpty()) {
+                try {
+                    upsert projectsToUpsert;
+                    System.debug('----------------------------Projects Upsert Done - Queueable apex------------------------------------');
+
+                    for (Project__c upsertedProject : [SELECT Id, External_Id__c FROM Project__c WHERE External_Id__c IN :externalIds]) {
+                        externalIdToSalesforceIdMap.put(upsertedProject.External_Id__c, upsertedProject.Id);
+                    }
+                } catch (Exception e) {
+                    System.debug('Exception during projects upsert: ' + e.getMessage());
+                }
+            }
+
+            for (String projectId : sectionsMap.keySet()) {
+                List<SectionWrapper> sectionWrappers = sectionsMap.get(projectId);
+
+                Set<String> sectionExternalIds = new Set<String>();
+                for (SectionWrapper sectionWrapper : sectionWrappers) {
+                    sectionExternalIds.add(sectionWrapper.id);
+                }
+                System.debug('sectionExternalIds: ' + sectionExternalIds);
+
+                Map<String, Section__c> existingSectionsMap = new Map<String, Section__c>();
+                for (Section__c existingSection : [SELECT Id, Name, External_Id__c FROM Section__c WHERE External_Id__c IN :sectionExternalIds]) {
+                    existingSectionsMap.put(existingSection.External_Id__c, existingSection);
+                }
+                System.debug('existingSectionsMap: ' + existingSectionsMap);
+
+                List<Section__c> sectionsToUpsert = new List<Section__c>();
+
+                for (SectionWrapper sectionWrapper : sectionWrappers) {
+                    Section__c section = existingSectionsMap.containsKey(sectionWrapper.id) ? existingSectionsMap.get(sectionWrapper.id) : new Section__c();
+                    section.External_Id__c = sectionWrapper.id;
+                    section.Name = sectionWrapper.name;
+                    section.Project__c = externalIdToSalesforceIdMap.get(projectId);  
+                    sectionsToUpsert.add(section);
+                }
+
+                if (!sectionsToUpsert.isEmpty()) {
+                    try {
+                        upsert sectionsToUpsert;
+                        System.debug('----------------------------Sections Upsert Done - Queueable apex------------------------------------');
+                    } catch (Exception e) {
+                        System.debug('Exception during sections upsert: ' + e.getMessage());
+                    }
+                }
+            }
+
+            for (String projectId : tasksMap.keySet()) {
+                List<TaskWrapper> taskWrappers = tasksMap.get(projectId);
+
+                Set<String> taskExternalIds = new Set<String>();
+                for (TaskWrapper taskWrapper : taskWrappers) {
+                    taskExternalIds.add(taskWrapper.id);
+                }
+                System.debug('taskExternalIds: ' + taskExternalIds);
+
+                Map<String, Task__c> existingTasksMap = new Map<String, Task__c>();
+                for (Task__c existingTask : [SELECT Id, Name, External_Id__c FROM Task__c WHERE External_Id__c IN :taskExternalIds]) {
+                    existingTasksMap.put(existingTask.External_Id__c, existingTask);
+                }
+                System.debug('existingTasksMap: ' + existingTasksMap);
+
+                List<Task__c> tasksToUpsert = new List<Task__c>();
+
+                for (TaskWrapper taskWrapper : taskWrappers) {
+                    Task__c task = existingTasksMap.containsKey(taskWrapper.id) ? existingTasksMap.get(taskWrapper.id) : new Task__c();
+                    task.External_Id__c = taskWrapper.id;
+                    task.Name = taskWrapper.name;
+                   // task.Due_Date__c = taskWrapper.due_date;
+                    task.Priority__c = taskWrapper.priority;
+                    task.Project__c = externalIdToSalesforceIdMap.get(projectId);  // Use the Salesforce ID
+                    tasksToUpsert.add(task);
+                }
+
+                if (!tasksToUpsert.isEmpty()) {
+                    try {
+                        upsert tasksToUpsert;
+                        System.debug('----------------------------Tasks Upsert Done - Queueable apex------------------------------------');
+                    } catch (Exception e) {
+                        System.debug('Exception during tasks upsert: ' + e.getMessage());
+                    }
+                }
+            }
+        } else {
+            System.debug('Error response: ' + projectResponse.getBody());
+        }
+    }
+
+    private List<SectionWrapper> fetchSectionsForProject(String projectId, Http http) {
+        HttpRequest sectionRequest = new HttpRequest();
+        sectionRequest.setEndpoint('https://api.todoist.com/rest/v2/sections?project_id=' + projectId);
+        sectionRequest.setMethod('GET');
+        sectionRequest.setHeader('Authorization', 'Bearer ca3dedc92f418462bda0f6bc28580cc2df8c9162');
+        HttpResponse sectionResponse = http.send(sectionRequest);
+
+        if (sectionResponse.getStatusCode() == 200) {
+            return (List<SectionWrapper>) JSON.deserialize(sectionResponse.getBody(), List<SectionWrapper>.class);
+        } else {
+            System.debug('Error fetching sections for project ' + projectId + ': ' + sectionResponse.getBody());
+            return new List<SectionWrapper>();
+        }
+    }
+
+    private List<TaskWrapper> fetchTasksForProject(String projectId, Http http) {
+        HttpRequest taskRequest = new HttpRequest();
+        taskRequest.setEndpoint('https://api.todoist.com/rest/v2/tasks?project_id=' + projectId);
+        taskRequest.setMethod('GET');
+        taskRequest.setHeader('Authorization', 'Bearer ca3dedc92f418462bda0f6bc28580cc2df8c9162');
+        HttpResponse taskResponse = http.send(taskRequest);
+
+        if (taskResponse.getStatusCode() == 200) {
+            return (List<TaskWrapper>) JSON.deserialize(taskResponse.getBody(), List<TaskWrapper>.class);
+        } else {
+            System.debug('Error fetching tasks for project ' + projectId + ': ' + taskResponse.getBody());
+            return new List<TaskWrapper>();
+        }
+    }
+
+    public class ProjectWrapper {
+        public String id;
+        public String name;
+        public String color;
+        public Decimal comment_count;
+        public Boolean is_favorite;
+        public Boolean is_inbox_project;
+        public Boolean is_shared;
+        public Boolean is_team_inbox;
+        public String url;
+        public String view_style;
+    }
+
+    public class SectionWrapper {
+        public String id;
+        public String name;
+    }
+
+    public class TaskWrapper {
+        public String id;
+        public String name;
+        public Date due_date;
+        public Integer priority;
+    }
+}

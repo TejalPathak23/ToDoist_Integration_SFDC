@@ -1,0 +1,38 @@
+public class ProjectTriggerHandler {
+    public static void afterInsert(List<Project__c> newProjects) {
+        System.debug('---------------- Inside beforeInsert method ---------------------');
+        List<Id> projectIds = new List<Id>();
+        for (Project__c project : newProjects) {
+            projectIds.add(project.Id);
+        }
+        ToDoistHandlerBatch batch = new ToDoistHandlerBatch(projectIds);
+        Database.executeBatch(batch);
+        System.debug('---------------- beforeInsert() batch run ---------------------');
+    }
+    
+    public static void afterUpdate(Map<Id, Project__c> newMap, Map<Id, Project__c> oldMap) {
+        System.debug('---------------- Inside beforeUpdate method ---------------------');
+        List<Id> projectIdsToUpdate = new List<Id>();
+        for (Id projectId : newMap.keySet()) {
+            Project__c newProject = newMap.get(projectId);
+            Project__c oldProject = oldMap.get(projectId);
+            if (newProject.external_id__c != null && newProject.external_id__c == oldProject.external_id__c 
+                || (newProject.color__c != oldProject.color__c)
+                || (newProject.Name != oldProject.Name)
+                || (newProject.comment_count__c != oldProject.comment_count__c)
+                || (newProject.is_favorite__c != oldProject.is_favorite__c)
+                || (newProject.is_inbox_project__c != oldProject.is_inbox_project__c)
+                || (newProject.is_shared__c != oldProject.is_shared__c)
+                || (newProject.is_team_inbox__c != oldProject.is_team_inbox__c)
+                || (newProject.url__c != oldProject.url__c)
+                || (newProject.view_style__c != oldProject.view_style__c)) {
+                    projectIdsToUpdate.add(projectId);
+                }
+        }
+        if (!projectIdsToUpdate.isEmpty()) {
+            ToDoistHandlerBatch batch = new ToDoistHandlerBatch(projectIdsToUpdate);
+            Database.executeBatch(batch);
+            System.debug('---------------- beforeUpdate() batch run ---------------------');
+        }
+    }
+}

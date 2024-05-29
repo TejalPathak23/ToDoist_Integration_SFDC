@@ -1,0 +1,33 @@
+// TaskTriggerHandler - POST - Task
+public class TaskTriggerHandler {
+    public static void afterInsert(List<Task__c> newTasks) {
+        System.debug('---------------- Inside TaskTriggerHandler ---------------------');
+        System.debug('---------------- Inside afterInsert method ---------------------');
+        List<Id> taskIds = new List<Id>();
+        for (Task__c task : newTasks) {
+            taskIds.add(task.Id);
+        }
+        ToDoistHandlerBatchTask batch = new ToDoistHandlerBatchTask(taskIds);
+        Database.executeBatch(batch);
+        System.debug('---------------- afterInsert() batch run ---------------------');
+    }
+    
+    public static void afterUpdate(Map<Id, Task__c> newMap, Map<Id, Task__c> oldMap) {
+        System.debug('---------------- Inside afterUpdate method ---------------------');
+        List<Id> taskIdsToUpdate = new List<Id>();
+        for (Id taskId : newMap.keySet()) {
+            Task__c newTask = newMap.get(taskId);
+            Task__c oldTask = oldMap.get(taskId);
+            if (newTask.External_Id__c != null && newTask.External_Id__c == oldTask.External_Id__c 
+                || (newTask.Project__c != oldTask.Project__c)) {
+                    taskIdsToUpdate.add(taskId);
+                }
+        }
+        if (!taskIdsToUpdate.isEmpty()) {
+            ToDoistHandlerBatchTask batch = new ToDoistHandlerBatchTask(taskIdsToUpdate);
+            Database.executeBatch(batch);
+            System.debug('---------------- afterUpdate() batch run ---------------------');
+        }
+    }
+}
+

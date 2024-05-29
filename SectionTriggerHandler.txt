@@ -1,0 +1,32 @@
+// Trigger Handler - Post - Section
+public class SectionTriggerHandler {
+    public static void afterInsert(List<Section__c> newSections) {
+        System.debug('---------------- Inside SectionTriggerHandler ---------------------');
+        System.debug('---------------- Inside beforeInsert method ---------------------');
+        List<Id> sectionIds = new List<Id>();
+        for (Section__c section : newSections) {
+            sectionIds.add(section.Id);
+        }
+        ToDoistHandlerBatchSection batch = new ToDoistHandlerBatchSection(sectionIds);
+        Database.executeBatch(batch);
+        System.debug('---------------- beforeInsert() batch run ---------------------');
+    }
+    
+    public static void afterUpdate(Map<Id, Section__c> newMap, Map<Id, Section__c> oldMap) {
+        System.debug('---------------- Inside beforeUpdate method ---------------------');
+        List<Id> sectionIdsToUpdate = new List<Id>();
+        for (Id sectionId : newMap.keySet()) {
+            Section__c newSection = newMap.get(sectionId);
+            Section__c oldSection = oldMap.get(sectionId);
+            if (newSection.External_Id__c != null && newSection.External_Id__c == oldSection.External_Id__c 
+                || (newSection.Project__c != oldSection.Project__c)){
+                    sectionIdsToUpdate.add(sectionId);
+                }
+        }
+        if (!sectionIdsToUpdate.isEmpty()) {
+            ToDoistHandlerBatchSection batch = new ToDoistHandlerBatchSection(sectionIdsToUpdate);
+            Database.executeBatch(batch);
+            System.debug('---------------- beforeUpdate() batch run ---------------------');
+        }
+    }
+}

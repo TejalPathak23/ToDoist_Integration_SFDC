@@ -1,0 +1,91 @@
+public class ToDoistToOrgQueueable implements Queueable, Database.AllowsCallouts {
+    public void execute(QueueableContext context) {
+        System.debug('----------------------------Inside Queueable apex------------------------------------');
+        Http http = new Http();
+        HttpRequest request = new HttpRequest();
+        request.setEndpoint('https://api.todoist.com/rest/v2/projects');
+        request.setMethod('GET');
+        request.setHeader('Authorization', 'Bearer ca3dedc92f418462bda0f6bc28580cc2df8c9162');
+        HttpResponse response = http.send(request);
+
+        if(response.getStatusCode() == 200) {
+            List<ProjectWrapper> projectWrappers = (List<ProjectWrapper>) JSON.deserialize(
+                response.getBody(), 
+                List<ProjectWrapper>.class
+            );
+
+            Set<String> externalIds = new Set<String>();
+            for (ProjectWrapper projectWrapper : projectWrappers) {
+                externalIds.add(projectWrapper.id);
+            }
+            System.debug('externalIds: ' + externalIds);
+            
+
+            Map<String, Project__c> existingProjectsMap = new Map<String, Project__c>();
+            for (Project__c existingProject : [SELECT Id, Name, External_Id__c FROM Project__c WHERE External_Id__c IN :externalIds]) {
+                existingProjectsMap.put(existingProject.External_Id__c, existingProject);
+            }
+            System.debug('existingProjectsMap: ' + existingProjectsMap);
+
+            List<Project__c> projectsToUpdate = new List<Project__c>();
+            List<Project__c> newProjects = new List<Project__c>();
+
+            for (ProjectWrapper projectWrapper : projectWrappers) {
+                if (existingProjectsMap.containsKey(projectWrapper.id)) {
+                    System.debug('----------------------------Inside Insert - Queueable apex------------------------------------');
+                    Project__c existingProject = existingProjectsMap.get(projectWrapper.id);
+                    existingProject.Name = projectWrapper.name; 
+                    existingProject.color__c = projectWrapper.color;
+                    existingProject.comment_count__c = projectWrapper.comment_count;
+                    existingProject.is_favorite__c = projectWrapper.is_favorite;
+                    existingProject.is_inbox_project__c = projectWrapper.is_inbox_project;
+                    existingProject.is_shared__c = projectWrapper.is_shared;
+                    existingProject.is_team_inbox__c = projectWrapper.is_team_inbox;
+                    existingProject.url__c = projectWrapper.url;
+                    existingProject.view_style__c = projectWrapper.view_style;
+                    projectsToUpdate.add(existingProject);
+                    
+                } else {
+                    System.debug('----------------------------Inside Update - Queueable apex------------------------------------');
+                    Project__c newProject = new Project__c();
+                    newProject.External_Id__c = projectWrapper.id;
+                    newProject.Name = projectWrapper.name;
+                    newProject.color__c = projectWrapper.color;
+                    newProject.comment_count__c = projectWrapper.comment_count;
+                    newProject.is_favorite__c = projectWrapper.is_favorite;
+                    newProject.is_inbox_project__c = projectWrapper.is_inbox_project;
+                    newProject.is_shared__c = projectWrapper.is_shared;
+                    newProject.is_team_inbox__c = projectWrapper.is_team_inbox;
+                    newProject.url__c = projectWrapper.url;
+                    newProject.view_style__c = projectWrapper.view_style;
+                    projectsToUpdate.add(newProject);
+                }
+            }
+			System.debug('projectsToUpdate: '+ projectsToUpdate);
+            if (!projectsToUpdate.isEmpty()) {
+                try {
+                     // upsert projectsToUpdate External_Id__c;
+					   upsert projectsToUpdate;
+                    System.debug('----------------------------Upsert Done - Queueable apex------------------------------------');
+                } catch(Exception e) {
+                    System.debug('Exception:' + e.getMessage());
+                }
+            }
+        } else {
+            System.debug('Error response: ' + response.getBody());
+        }
+    }
+
+    public class ProjectWrapper {
+        public String id; 
+        public String name;
+        public String color;
+        public Decimal comment_count;
+        public Boolean is_favorite;
+        public Boolean is_inbox_project;
+        public Boolean is_shared;
+        public Boolean is_team_inbox;
+        public String url;
+        public String view_style;
+    }
+}

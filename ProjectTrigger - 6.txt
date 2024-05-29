@@ -1,0 +1,12 @@
+trigger ProjectTrigger on Project__c (after insert, after update) {
+    System.debug('---------------- Inside ProjectTrigger ---------------------');
+    if (Trigger.isAfter) {
+        if (Trigger.isInsert) {
+            System.debug('---------------- Inside Before Insert ---------------------');
+            ProjectTriggerHandler.afterInsert(Trigger.new);
+        } else if (Trigger.isUpdate) {
+            System.debug('---------------- Inside Before Update ---------------------');
+            ProjectTriggerHandler.afterUpdate(Trigger.newMap, Trigger.oldMap);
+        }
+    }
+}

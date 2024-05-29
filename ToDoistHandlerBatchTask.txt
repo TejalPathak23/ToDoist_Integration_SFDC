@@ -1,0 +1,70 @@
+// Batch class - POST - Task
+public class ToDoistHandlerBatchTask implements Database.Batchable<SObject>, Database.AllowsCallouts, Database.Stateful {
+    public List<Id> taskIds = new List<Id>();
+    public List<String> externalIds = new List<String>(); 
+    
+    public ToDoistHandlerBatchTask(List<Id> ids) {
+        taskIds.addAll(ids);
+    }
+    
+    public Database.QueryLocator start(Database.BatchableContext context) {
+        System.debug('---------------- Inside ToDoistHandlerBatchTask ---------------------');
+        System.debug('---------------- Inside - start method - batch class ---------------------' + taskIds.size());
+        String query = 'SELECT Id, Name, Project__c,Section__c, External_Id__c, due_date__c,project_id__c,section_id__c,content__c FROM Task__c WHERE Id IN :taskIds';
+        return Database.getQueryLocator(query);
+    }
+    
+    public void execute(Database.BatchableContext context, List<Task__c> scope) {
+        System.debug('---------------- Inside - execute method - batch class ---------------------' + scope.size());
+        if (scope.isEmpty()) {
+            System.debug('No records to process in execute block');
+            return;
+        }
+        
+        for (Task__c newTask : scope) {
+            System.debug('Scope Size: ' + scope.size());
+            Map<String, Object> taskMap = new Map<String, Object>();
+            taskMap.put('content', newTask.content__c);
+            taskMap.put('project_id', newTask.project_id__c);
+            taskMap.put('section_id', newTask.section_id__c);
+            //if (newTask.Due_Date__c != null) {
+               // taskMap.put('due_date', newTask.Due_Date__c.format());
+           // }
+            
+            String endpointUrl;
+            HttpRequest request = new HttpRequest();
+            if (String.isNotBlank(newTask.External_Id__c)) {
+                endpointUrl = 'https://api.todoist.com/rest/v2/tasks/' + newTask.External_Id__c;
+                request.setMethod('POST'); 
+            } else {
+                endpointUrl = 'https://api.todoist.com/rest/v2/tasks';
+                request.setMethod('POST');
+            }
+            
+            request.setEndpoint(endpointUrl);
+            request.setHeader('Content-Type', 'application/json');
+            request.setHeader('Authorization', 'Bearer ca3dedc92f418462bda0f6bc28580cc2df8c9162');
+            request.setBody(JSON.serialize(taskMap));
+            
+            HttpResponse response = new Http().send(request);
+            if (response.getStatusCode() == 200) {
+                if (String.isBlank(newTask.External_Id__c)) {
+                    Map<String, Object> responseBody = (Map<String, Object>) JSON.deserializeUntyped(response.getBody());
+                    String externalId = (String) responseBody.get('id');
+                    externalIds.add(externalId);
+                    newTask.External_Id__c = externalId;
+                    update newTask;
+                }
+            } else {
+                System.debug('Failed to create/update Todoist task. Status code: ' + response.getStatusCode());
+                System.debug('Response :----> ' + response.getBody());
+            }
+        }
+        System.debug('---------------- End of - execute method - batch class ---------------------');
+    }
+    
+    public void finish(Database.BatchableContext context) {
+        System.debug('---------------- Inside - finish method - batch class ---------------------');
+        System.debug('Successfully executed finish block');
+    }
+}

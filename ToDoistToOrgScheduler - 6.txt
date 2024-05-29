@@ -1,0 +1,13 @@
+public class ToDoistToOrgScheduler implements Schedulable {
+    public void execute(SchedulableContext sc) {
+        System.enqueueJob(new ToDoistToOrgQueueable());
+    }
+}
+
+// ---------------------------------------------  How to call ----------------------------------------------------------------
+/* 
+// Sec - Min - Hr - Day - Month - Year 
+String cronExpression = '0 0 12 * * ?'; 
+ToDoistToOrgScheduler scheduler = new ToDoistToOrgScheduler();
+System.schedule('Daily ToDoist to Org Sync', cronExpression, scheduler);
+*/

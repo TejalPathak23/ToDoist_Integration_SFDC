@@ -1,0 +1,15 @@
+// Section Trigger
+trigger SectionTrigger on Section__c (after insert, after update) {
+   System.debug('---------------- Inside SectionTrigger ---------------------');
+    if (Trigger.isAfter) {
+        if (Trigger.isInsert) {
+            System.debug('---------------- Inside Before Insert ---------------------');
+            SectionTriggerHandler.afterInsert(Trigger.new);
+        } else if (Trigger.isUpdate) {
+            System.debug('---------------- Inside Before Update ---------------------');
+            SectionTriggerHandler.afterUpdate(Trigger.newMap, Trigger.oldMap);
+        }
+    }
+    
+    
+}

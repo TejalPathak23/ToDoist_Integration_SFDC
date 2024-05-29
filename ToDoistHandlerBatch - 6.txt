@@ -1,0 +1,72 @@
+public class ToDoistHandlerBatch implements Database.Batchable<SObject>, Database.AllowsCallouts, Database.Stateful {
+    public List<Id> projectIds = new List<Id>();
+    public List<String> externalIds = new List<String>(); 
+    
+    public ToDoistHandlerBatch(List<Id> ids) {
+        projectIds.addAll(ids);
+    }
+    
+    public Database.QueryLocator start(Database.BatchableContext context) {
+        System.debug('---------------- Inside - start method - batch class ---------------------'+projectIds.size());
+        String query = 'SELECT Id, Name, color__c, comment_count__c, is_favorite__c, is_inbox_project__c, is_shared__c, is_team_inbox__c, url__c, view_style__c, external_id__c FROM Project__c WHERE Id IN :projectIds';
+        return Database.getQueryLocator(query);
+    }
+    
+    public void execute(Database.BatchableContext context, List<Project__c> scope) {
+        System.debug('---------------- Inside - execute method - batch class ---------------------'+scope.size());
+        if (scope.isEmpty()) {
+            System.debug('No records to process in execute block');
+            return;
+        }
+        
+        for (Project__c newProject : scope) {
+            System.debug('Scope Size: '+ scope.size());
+            Map<String, Object> projectMap = new Map<String, Object>();
+            projectMap.put('name', newProject.Name);
+            projectMap.put('color', newProject.color__c);
+            projectMap.put('comment_count', (Double)newProject.comment_count__c);
+            projectMap.put('is_favorite', newProject.is_favorite__c);
+            projectMap.put('is_inbox_project', newProject.is_inbox_project__c);
+            projectMap.put('is_shared', newProject.is_shared__c);
+            projectMap.put('is_team_inbox', newProject.is_team_inbox__c);
+            projectMap.put('url', newProject.url__c);
+            projectMap.put('view_style', newProject.view_style__c);
+            projectMap.put('id', newProject.external_id__c);
+            
+            String endpointUrl;
+            HttpRequest request = new HttpRequest();
+            if (String.isNotBlank(newProject.external_id__c)) {
+                endpointUrl = 'https://api.todoist.com/rest/v2/projects/' + newProject.external_id__c;
+                request.setMethod('POST'); 
+            } else {
+                endpointUrl = 'https://api.todoist.com/rest/v2/projects';
+                request.setMethod('POST');
+            }
+            
+            request.setEndpoint(endpointUrl);
+            request.setHeader('Content-Type', 'application/json');
+            request.setHeader('Authorization', 'Bearer ca3dedc92f418462bda0f6bc28580cc2df8c9162');
+            request.setBody(JSON.serialize(projectMap));
+            
+            HttpResponse response = new Http().send(request);
+            if (response.getStatusCode() == 200) {
+                if (String.isBlank(newProject.external_id__c)) {
+                    Map<String, Object> responseBody = (Map<String, Object>) JSON.deserializeUntyped(response.getBody());
+                    String externalId = (String) responseBody.get('id');
+                    externalIds.add(externalId);
+                    newProject.external_id__c = externalId;
+                    update newProject;
+                }
+            } else {
+                System.debug('Failed to create/update Todoist project. Status code: ' + response.getStatusCode());
+                System.debug('Response :----> ' + response.getBody());
+            }
+        }
+        System.debug('---------------- End of - execute method - batch class ---------------------');
+    }
+    
+    public void finish(Database.BatchableContext context) {
+        System.debug('---------------- Inside - finish method - batch class ---------------------');
+        System.debug('Successfully executed finish block');
+    }
+}

@@ -1,0 +1,66 @@
+// Batch class - POST - Section
+public class ToDoistHandlerBatchSection implements Database.Batchable<SObject>, Database.AllowsCallouts, Database.Stateful {
+    public List<Id> sectionIds = new List<Id>();
+    public List<String> externalIds = new List<String>(); 
+    
+    public ToDoistHandlerBatchSection(List<Id> ids) {
+        sectionIds.addAll(ids);
+    }
+    
+    public Database.QueryLocator start(Database.BatchableContext context) {
+        System.debug('---------------- Inside ToDoistHandlerBatchSection ---------------------');
+        System.debug('---------------- Inside - start method - batch class ---------------------'+sectionIds.size());
+        String query = 'SELECT Id, Name, Project__c, External_Id__c, Project_id__c FROM Section__c WHERE Id IN :sectionIds';
+        return Database.getQueryLocator(query);
+    }
+    
+    public void execute(Database.BatchableContext context, List<Section__c> scope) {
+        System.debug('---------------- Inside - execute method - batch class ---------------------'+scope.size());
+        if (scope.isEmpty()) {
+            System.debug('No records to process in execute block');
+            return;
+        }
+        
+        for (Section__c newSection : scope) {
+            System.debug('Scope Size: '+ scope.size());
+            Map<String, Object> sectionMap = new Map<String, Object>();
+            sectionMap.put('name', newSection.Name);
+            sectionMap.put('project_id', newSection.Project_id__c);
+            
+            String endpointUrl;
+            HttpRequest request = new HttpRequest();
+            if (String.isNotBlank(newSection.External_Id__c)) {
+                endpointUrl = 'https://api.todoist.com/rest/v2/sections/' + newSection.External_Id__c;
+                request.setMethod('POST'); 
+            } else {
+                endpointUrl = 'https://api.todoist.com/rest/v2/sections';
+                request.setMethod('POST');
+            }
+            
+            request.setEndpoint(endpointUrl);
+            request.setHeader('Content-Type', 'application/json');
+            request.setHeader('Authorization', 'Bearer ca3dedc92f418462bda0f6bc28580cc2df8c9162');
+            request.setBody(JSON.serialize(sectionMap));
+            
+            HttpResponse response = new Http().send(request);
+            if (response.getStatusCode() == 200) {
+                if (String.isBlank(newSection.External_Id__c)) {
+                    Map<String, Object> responseBody = (Map<String, Object>) JSON.deserializeUntyped(response.getBody());
+                    String externalId = (String) responseBody.get('id');
+                    externalIds.add(externalId);
+                    newSection.External_Id__c = externalId;
+                    update newSection;
+                }
+            } else {
+                System.debug('Failed to create/update Todoist section. Status code: ' + response.getStatusCode());
+                System.debug('Response :----> ' + response.getBody());
+            }
+        }
+        System.debug('---------------- End of - execute method - batch class ---------------------');
+    }
+    
+    public void finish(Database.BatchableContext context) {
+        System.debug('---------------- Inside - finish method - batch class ---------------------');
+        System.debug('Successfully executed finish block');
+    }
+}
